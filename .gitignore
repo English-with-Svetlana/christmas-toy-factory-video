@@ -1,0 +1,16 @@
+# Keep the supplied source locally; publish only optimized assets.
+/*.mp4
+/qa/
+.DS_Store
+# Local preview and browser tests are not publication files.
+/iframe-preview.html
+/scripts/test.cjs
+# Temporary files and local dependencies.
+__pycache__/
+*.py[cod]
+*.tmp
+*.log
+*~
+node_modules/
+.env
+.env.*
