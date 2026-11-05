@@ -1,0 +1,78 @@
+name: Deploy static site to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare publication files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pages-site/assets"
+          cp index.html .nojekyll "$RUNNER_TEMP/pages-site/"
+          python3 - "$RUNNER_TEMP/pages-site" <<'PY'
+          import hashlib
+          from html.parser import HTMLParser
+          from pathlib import Path
+          import re
+          import shutil
+          import sys
+
+          class Assets(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.paths = set()
+
+              def handle_starttag(self, tag, attrs):
+                  for key, value in attrs:
+                      if key in ('src', 'poster') and value:
+                          self.paths.add(value)
+
+          parser = Assets()
+          parser.feed(Path('index.html').read_text())
+          if not parser.paths:
+              raise SystemExit('No publication assets found')
+          for name in sorted(parser.paths):
+              match = re.fullmatch(r'assets/(?:factory|poster)\.([0-9a-f]{16})\.(?:mp4|jpg)', name)
+              if not match:
+                  raise SystemExit(f'Unexpected asset path: {name}')
+              source = Path(name)
+              if source.is_symlink() or not source.is_file():
+                  raise SystemExit(f'Missing or linked asset: {name}')
+              if hashlib.sha256(source.read_bytes()).hexdigest()[:16] != match[1]:
+                  raise SystemExit(f'Content hash mismatch: {name}')
+              shutil.copyfile(source, Path(sys.argv[1]) / name)
+          PY
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/pages-site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
